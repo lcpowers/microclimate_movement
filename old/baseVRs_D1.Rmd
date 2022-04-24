@@ -1,0 +1,157 @@
+---
+title: "QCB Project"
+author: "Claire Powers"
+date: '2022-04-19'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# set-up
+```{r}
+rm(list=ls())
+
+library(tidyverse)
+library(MASS)
+source("../R/logit2prob.R")
+# source("R/add_m_fun.R")
+source("R/baseVRs_D1.R")
+
+szs = c(1,5,10)
+```
+
+# Survival rate equation parameters for baseline growth
+```{r surv_params}
+# Columns = (N,top,S)
+# surv_aspect = matrix(c(1,0,0.5,
+#                        1,0,-0.5,
+#                        1,0,-0.5),
+#                       nrow=3,byrow=T)
+surv_aspect=0
+
+survs = c(0.1,0.45,0.64) # Change here for long lived
+survs_lm = glm(survs~szs,family = binomial)
+S_a = survs_lm$coefficients[1]
+S_b = survs_lm$coefficients[2]
+S_c = 0.1
+S_d = -0.05
+S_e = 1
+clim = 0
+
+# S_rates = logit2prob(S_a + S_b*szs + S_c*(clim + S_e*surv_aspect) + S_d*(clim + S_e*surv_aspect)^2)
+
+# Look at clim vals
+climdf = data.frame(clim=seq(-3,3,by=0.05),
+                    S.s=NA,
+                    S.j=NA,
+                    S.a=NA)
+
+for(i in 1:nrow(climdf)){
+
+  clim = climdf$clim[i]
+  survival = logit2prob(S_a + S_b*szs + S_c*(clim + S_e*surv_aspect) + S_d*(clim + S_e*surv_aspect)^2)
+  climdf[i,2:4] = ifelse(survival>0,survival,0)
+
+}
+
+ggplot(climdf,aes(x=clim))+
+  geom_point(aes(y=S.s,color="seedling"))+
+  geom_point(aes(y=S.j,color="juvenile"))+
+  geom_point(aes(y=S.a,color="adult"))+
+  theme_bw()+
+  geom_hline(yintercept = 0)
+```
+
+
+
+# Growth rate equation parameters for baseline growth
+```{r growth_params}
+# Columns = (N,top,S)
+# grow_aspect = matrix(c(-1,0,-0.5,
+#                        -1,0,0.5,
+#                        -1,0,0.5),
+#                       nrow=3,byrow=T)
+grow_aspect = 0
+
+growth = c(0.35,0.65) 
+grow_lm = glm(growth~szs[1:2])
+
+G_a = grow_lm$coefficients[1]
+G_b = grow_lm$coefficients[2]
+G_c = -0.03
+G_d = -0.015
+G_e = 1
+clim = 0
+
+G_rates = G_a + G_b*szs[1:2] + G_c*(clim + G_e*grow_aspect) + G_d*(clim + G_e*grow_aspect)^2
+
+# Look at clim vals
+climdf = data.frame(clim=seq(-3,3,by=0.05),
+                    G.s=NA,
+                    G.j=NA)
+
+for(i in 1:nrow(climdf)){
+
+  clim = climdf$clim[i]
+  growth = G_a + G_b*szs[1:2] + G_c*(clim + G_e*grow_aspect) + G_d*(clim + G_e*grow_aspect)^2
+  climdf[i,2:3] = growth
+
+}
+
+ggplot(climdf,aes(x=clim))+
+  geom_point(aes(y=G.s,color="seedling"))+
+  geom_point(aes(y=G.j,color="juvenile"))+
+  theme_bw()+
+  geom_hline(yintercept = 0)+
+  ylim(0,0.8)
+```
+
+# Baseline fecundity
+```{r G_mx}
+
+S.sdlg = S_rates[1]
+S.juv = S_rates[2]
+S.adult = S_rates[3]
+
+G.sdlg = G_rates[1]
+G.juv = G_rates[2]
+
+base_mx = matrix(rep(0,9),nrow=3)
+base_mx[2,1] = S.sdlg*G.sdlg
+
+base_mx[2,2] = S.juv*(1-G.juv)
+base_mx[3,2] = S.juv*G.juv
+
+base_mx[3,3] = S.adult
+
+F_fun <- function(F){
+      base_mx[1,3] <- F*S.adult*S.sdlg
+      lam <- Re(eigen(base_mx)$values[1])
+      x = (1-lam)^2
+      return(x)
+}
+
+Fec <- optim(par = 500, fn = F_fun,method = "L-BFGS-B", lower=0, upper=100000)
+Fec <- round(Fec$par)
+
+base_mx[1,3] <- Fec*S.adult*S.sdlg
+Re(eigen(base_mx)$values[1]) # = 1.000139
+```
+
+# Determining aspect mx values
+```{r}
+
+G_mx = matrix(rep(0,81),nrow=9)
+
+G_mx[1:3,1:3] = base_mx
+G_mx[4:6,4:6] = base_mx
+G_mx[7:9,7:9] = base_mx
+
+G_mx_m = add_m_fun(Gmx = G_mx, m = 0.5, npops = 3)
+
+```
+
+
+

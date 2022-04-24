@@ -1,0 +1,283 @@
+---
+title: "Building G matrix"
+author: "Claire Powers"
+date: "2/26/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+rm(list=ls())
+setwd("~/Desktop/CurrentProjects/IndividualVariation/IndVarRepo")
+
+library(tidyverse)
+source("R/new_matrixfun.R")
+source("R/add_m_fun.R")
+```
+
+
+To-do: 
+- Make sub-pop vital rates correlated
+
+Build G matrix
+```{r Gmx}
+
+npops = 3
+dims = 3
+
+# Zero matrices
+Gshort <- matrix(data=0,nrow=dims*npops,ncol=dims*npops)
+Glong <- matrix(data=0,nrow=dims*npops,ncol=dims*npops)
+
+# [1,1] postions for each sub pop
+subpop11s = seq(1,npops*dims,by=dims)
+
+random.vitalrate = "Sadult"
+
+# Create G matrices for short- and long-lived groups
+for(i in subpop11s){
+ 
+  # Create mx for current part of G mx
+  shortmx = round(mx3by3(shortlived = T, random.vr = random.vitalrate),4)
+  
+  # Over-write that one if lambda is too low or high
+  while(Re(eigen(shortmx)$values[1])<0.97|Re(eigen(shortmx)$values[1])>1.03){
+    shortmx = round(mx3by3(shortlived = T, random.vr = random.vitalrate),4)
+  }
+  
+  # Plop it into the G mx
+  Gshort[i:(i+2),i:(i+2)] <- shortmx # Short-lived G matrix
+
+  # # Same process for long-lived mx
+  # longmx = round(mx3by3(shortlived = F),4) # create long mx
+  # # Catch long mx with high or low lambda
+  # 
+  # while(Re(eigen(longmx)$values[1])<0.98|Re(eigen(longmx)$values[1])>1.02){
+  #   longmx = round(mx3by3(shortlived = F),4)
+  # }
+  # # plop into G mx
+  # Glong[i:(i+2),i:(i+2)] <- longmx # Long-lived G matrix
+  # 
+  # clean env
+  rm(shortmx,longmx)
+};rm(i)
+
+# Check G mx lams
+Re(eigen(Gshort)$values[1])
+Re(eigen(Glong)$values[1])
+
+m = seq(0,1,by=0.01)
+out_df = matrix(nrow = length(m),ncol=2+npops) %>% as.data.frame()
+colnames(out_df) = c("move.rate","G.lam")
+
+# Add column names to sub-pop columns
+for(i in 3:ncol(out_df)){colnames(out_df)[i]=paste0("pop",(i-2))}
+out_df$move.rate=m
+
+for(i in 1:nrow(out_df)){
+  
+  Gmx = Glong
+  
+  # First get lambdas for individual pops before movement is added
+  for(j in 1:npops){
+    ii = subpop11s[j]
+    tmp.mx = Gmx[ii:(ii+2),ii:(ii+2)]
+    out_df[i,j+2] = Re(eigen(tmp.mx)$values[1])
+    rm(ii,tmp.mx)
+  }
+  
+  tmp.mx = add_m_fun(Gmx = Gmx,m = out_df$move.rate[i],npops = npops)
+  out_df$move.rate[i] = m[i]
+  out_df$G.lam[i] = Re(eigen(tmp.mx)$values[1])
+  
+}
+
+ggplot(out_df,aes(x=move.rate))+
+  geom_point(aes(y=G.lam,color="Gmatrix"))
+
+
+```
+
+
+```{r}
+# 
+# add_m_fun = function(Gmx,m){
+# 
+#   Gmx_out = Gmx
+#   
+#   # Create vector of cell index that is the [1,1] for each sub pop
+#   subpop11s = seq(1,npops*dims,by=dims)
+#   
+#   # Get number destination populations 
+#   mcoef = npops-1
+#   
+#   ## Loop to change origin pop F cells (movement away from origin subpop)
+#   for(i in 1:length(subpop11s)){
+#     Gmx_out[subpop11s[i],3*i] = Gmx[subpop11s[i],3*i]*(1-mcoef*m)
+#   }
+#   
+#   ## Loop to change distination F cells (movement to subpops)
+#   for(i in 1:npops){
+#     subs = setdiff(subpop11s,subpop11s[i])
+#     for(sub in subs){
+#       Gmx_out[sub,3*i] = Gmx[subpop11s[i],3*i]*m 
+#     }
+#   }
+# 
+#   return(Gmx_out)
+# }
+# 
+```
+
+
+# Check G mxs
+```{r}
+
+# Start with 100 individuals in all classes for all pops
+startpop <- rep(100,dims*npops)
+pop = startpop
+yrs = 100
+
+# output matrix
+out = matrix(nrow=yrs+1,ncol=s*npops)
+out[1,]=pop
+
+for(i in 1:yrs){
+
+  pop = c(Gshort%*%pop)
+  out[i+1,] = pop
+
+  }
+
+# Plot output of 3 sub-pops
+plot(rowSums(out[,1:3]))
+plot(rowSums(out[,4:6]))
+plot(rowSums(out[,7:9]))
+
+```
+
+## Add  movement -- assume that all inidividuals can move between all populations and that rates are movement are same for all subpops
+```{r move_short}
+# Adding in movement -- will automate this after a rough draft here
+m = 0.01
+mcoef = npops-1
+
+Gshortmove = Gshort
+# First pop movement
+# Gshortmove[1,3] = Gshort[1,3]*(1-m*mcoef) # leaving pop 1
+Gshortmove[4,3] = Gshort[1,3]*m # 
+Gshortmove[7,3] = Gshort[1,3]*m #
+
+# Second pop movement
+Gshortmove[1,6] = Gshort[4,6]*m
+# Gshortmove[4,6] = Gshort[4,6]*(1-m*mcoef) # leaving pop 2
+Gshortmove[7,6] = Gshort[4,6]*m
+
+# Third pop movement
+Gshortmove[1,9] = Gshort[7,9]*m # 
+Gshortmove[4,9] = Gshort[7,9]*m
+# Gshortmove[7,9] = Gshort[7,9]*(1-m*mcoef) # Leaving pop 3
+
+#####
+# Start with 100 individuals in all classes for all pops
+startpop <- rep(100,dims^2)
+# startpop = c(0,0,100,0,0,0,0,0,0)
+pop = startpop
+yrs = 100
+
+###### output matrix#####
+out2 = matrix(nrow=yrs+1,ncol=9)
+out2[1,]=pop
+
+for(i in 1:yrs){
+
+  pop = c(Gshortmove%*%pop)
+  pop
+  out2[i+1,] = pop
+
+  }
+
+
+#####
+# Plot output of 3 sub-pops
+plot(rowSums(out[,1:3]))
+plot(rowSums(out2[,1:3]))
+
+plot(rowSums(out[,4:6]))
+plot(rowSums(out2[,4:6]))
+
+plot(rowSums(out[,7:9]))
+plot(rowSums(out2[,7:9]))
+
+Re(eigen(Gshort)$values[1])
+Re(eigen(Gshortmove)$values[1])
+```
+
+```{r}
+# 
+# add_m_fun = function(Gmx,m){
+# 
+#   Gmx_out = Gmx
+#   
+#   # Create vector of cell index that is the [1,1] for each sub pop
+#   subpop11s = seq(1,npops*dims,by=dims)
+#   
+#   # Get number destination populations 
+#   mcoef = npops-1
+#   
+#   ## Loop to change origin pop F cells (movement away from origin subpop)
+#   for(i in 1:length(subpop11s)){
+#     Gmx_out[subpop11s[i],3*i] = Gmx[subpop11s[i],3*i]*(1-mcoef*m)
+#   }
+#   
+#   ## Loop to change distination F cells (movement to subpops)
+#   for(i in 1:npops){
+#     subs = setdiff(subpop11s,subpop11s[i])
+#     for(sub in subs){
+#       Gmx_out[sub,3*i] = Gmx[subpop11s[i],3*i]*m 
+#     }
+#   }
+# 
+#   return(Gmx_out)
+# }
+# 
+```
+
+## Correlation matrix ##
+```{r}
+# load library MASS
+library(MASS)
+  
+# set seed and create data vectors
+set.seed(98989)
+sample_size <- 3                                       
+sample_meanvector <- c(10, 5)                                   
+sample_covariance_matrix <- matrix(c(10, 5, 2, 9),
+                                   ncol = 2)
+  
+# create bivariate normal distribution
+sample_distribution <- mvrnorm(n = sample_size,
+                               mu = sample_meanvector, 
+                               Sigma = sample_covariance_matrix)
+  
+# print top of distribution
+head(sample_distribution)
+```
+
+# From morris and doak
+```{r}
+# correlation matrix
+vrmeans = c(0.5,0.5,0.5)
+vrvars = c(0.1,0.1,0.1)
+mins = c(0,0,0)
+vrmax = c(1,1,1)
+
+c = 
+```
+
+
+
+

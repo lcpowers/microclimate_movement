@@ -1,0 +1,109 @@
+---
+title: "Looking at S_c and G_c"
+author: "Claire Powers"
+date: '2022-04-20'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+rm(list=ls())
+
+library(tidyverse)
+library(MASS)
+source("../R/logit2prob.R")
+# source("R/baseVRs_D1.R")
+
+szs = c(1,5,10)
+s.aspect = matrix(c(-1,0,1,
+                  -1,0,1,
+                  -1,0,1),nrow=3,byrow = T)
+
+S_a = survs_lm$coefficients[1]
+S_b = survs_lm$coefficients[2]
+S_c = c(0.06,0.01,0.02)
+S_d = c(-0.025,-0.015,-0.015)
+e = 1
+clim = 0
+
+# Look at clim valsv
+# S_c = 0.02
+# S_d = -0.025
+
+climdf = data.frame(clim=seq(-3,3,length.out=99),
+                    aspect = rep(c("N","T","S"),33),
+                    S.s=NA,
+                    S.j=NA,
+                    S.a=NA)
+
+loopseq = seq(1,99,3)
+
+for(i in loopseq){
+
+  clim = climdf$clim[i]
+  survival = logit2prob(S_a + S_b*szs + S_c*(clim + e*s.aspect) + S_d*(clim + e*s.aspect)^2)
+
+  climdf[i:(i+2),3:5] = t(survival)
+  rm(survival)
+}
+
+ggplot(climdf,aes(x=clim))+
+  geom_point(aes(y=S.s,color=aspect))+
+  geom_line(aes(y=S.s,color=aspect))+
+  geom_point(aes(y=S.j,color=aspect))+
+  geom_line(aes(y=S.j,color=aspect))+
+  geom_point(aes(y=S.a,color=aspect))+
+  geom_line(aes(y=S.a,color=aspect))+
+  theme_bw()+
+  geom_vline(xintercept = 0)+
+  #facet_wrap(~aspect)+
+  ylim(0,0.8)
+```
+
+```{r}
+# Columns = (N,top,S)
+g.aspect = matrix(c(-1,0,1,
+                    -1,0,1),
+                  nrow=2,byrow=T)
+
+
+growth = c(0.35,0.65) 
+grow_lm = glm(growth~szs[1:2])
+
+G_a = grow_lm$coefficients[1]
+G_b = grow_lm$coefficients[2]
+
+G_c = c(0.005,0.005)
+G_d = c(-0.005,-0.003)
+e = 2
+clim = 0
+
+climdf = data.frame(clim=seq(-2.5,2.5,length.out=99),
+                    aspect = rep(c("N","T","S"),33),
+                    G.s=NA,
+                    G.j=NA)
+
+loopseq = seq(1,99,3)
+
+for(i in loopseq){
+
+  clim = climdf$clim[i]
+  growth = G_a + G_b*szs[1:2] + G_c*(clim + e*g.aspect) + G_d*(clim + e*g.aspect)^2
+
+  climdf[i:(i+2),3:4] = t(growth)
+  rm(growth)
+}
+
+ggplot(climdf,aes(x=clim))+
+  geom_point(aes(y=G.s,color=aspect))+
+  geom_line(aes(y=G.s,color=aspect))+
+  geom_point(aes(y=G.j,color=aspect))+
+  geom_line(aes(y=G.j,color=aspect))+
+  theme_bw()+
+  geom_vline(xintercept = c(-2,0,2))+
+  ylim(0,0.8)
+```
+
